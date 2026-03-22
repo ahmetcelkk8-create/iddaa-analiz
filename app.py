@@ -2,95 +2,80 @@ import streamlit as st
 import requests
 import pandas as pd
 
-# --- PROFESYONEL AYARLAR ---
-st.set_page_config(page_title="Ahmet Çelik Pro Analiz v2.8", page_icon="⚽", layout="wide")
+# --- SAYFA AYARLARI ---
+st.set_page_config(page_title="Ahmet Çelik Pro Analiz v3.1", layout="wide")
 
 st.markdown("""
 <style>
-    .stButton>button { color: white; background-color: #ff4b4b; border-radius: 10px; font-weight: bold; width: 100%; height: 50px; }
-    h1 { color: #1f77b4; font-size: 26px; }
+    .stButton>button { color: white; background-color: #ff4b4b; border-radius: 12px; font-weight: bold; width: 100%; height: 50px; }
+    h1 { color: #1f77b4; text-align: center; font-size: 28px; }
 </style>
 """, unsafe_allow_html=True)
 
-# API ANAHTARI
-API_KEY = "35f2b62a7e6346539316a66a72dbb5d7" 
+API_KEY = "35f2b62a7e6346539316a66a72dbb5d7"
 
-st.title("⚽ Profesyonel Maç Analiz & Derin Tahmin Merkezi")
+st.title("⚽ Profesyonel Maç Analiz Merkezi")
 
-def veri_cek(lig_kodu, mod):
+# --- ÖNBELLEK SİSTEMİ (HIZLANDIRICI) ---
+# Bu fonksiyon veriyi 10 dakika boyunca hafızada tutar, tekrar tekrar API'ye gitmez.
+@st.cache_data(ttl=600) 
+def veri_getir_cached(lig_kodu):
     headers = {'X-Auth-Token': API_KEY}
-    
-    # Ücretsiz paket için en güvenli URL yapısı
     url = f"https://api.football-data.org/v4/competitions/{lig_kodu}/matches"
-    
     try:
-        response = requests.get(url, headers=headers)
-        if response.status_code != 200:
-            return None, response.status_code
-            
-        data = response.json()
-        all_matches = data.get('matches', [])
-        
-        if mod == "Gelecek Maçlar":
-            filtreli = [m for m in all_matches if m.get('status') in ['SCHEDULED', 'TIMED']]
-            return filtreli[:20], 200
-        else:
-            filtreli = [m for m in all_matches if m.get('status') == 'FINISHED']
-            return filtreli[-20:], 200
-            
-    except Exception as e:
-        return None, str(e)
+        r = requests.get(url, headers=headers)
+        if r.status_code == 200:
+            return r.json()
+        return r.status_code
+    except:
+        return "Bağlantı Hatası"
 
-def derin_analiz(mac_listesi):
-    analiz_sonuclari = []
-    for m in mac_listesi:
+def analiz_motoru(data, mod):
+    if not data or 'matches' not in data:
+        return None
+    
+    maclar = data['matches']
+    if mod == "Gelecek Maçlar":
+        hedef = [m for m in maclar if m['status'] in ['SCHEDULED', 'TIMED', 'POSTPONED']][:15]
+    else:
+        hedef = [m for m in maclar if m['status'] == 'FINISHED'][-15:]
+
+    sonuclar = []
+    for m in hedef:
         ev = m['homeTeam']['name']
         dep = m['awayTeam']['name']
-        tarih = m['utcDate'][:10]
         
-        # Skor
-        s_h = m.get('score', {}).get('fullTime', {}).get('home')
-        s_a = m.get('score', {}).get('fullTime', {}).get('away')
-        skor_str = f"{s_h} - {s_a}" if s_h is not None else "---"
-        
-        # Analiz Mantığı
-        guc = len(ev) + len(dep)
-        analiz_sonuclari.append({
-            "Tarih": tarih,
+        # Derin Analiz Simülasyonu
+        puan = len(ev) + len(dep)
+        sonuclar.append({
+            "Tarih": m['utcDate'][:10],
             "Maç": f"**{ev}** vs **{dep}**",
-            "SKOR": skor_str,
-            "Ev 1.5 Ü": "🔥 %78" if len(ev) > 8 else "❄️ %42",
-            "Dep 1.5 Ü": "🔥 %72" if len(dep) > 8 else "❄️ %38",
-            "İY 0.5 Ü": "🔥 %82" if guc > 14 else "❄️ %50",
-            "KG Var": "🔄 Evet" if guc > 16 else "❌ Hayır",
-            "Kart": "⚠️ 4-6" if guc > 15 else "✅ 2-4"
+            "SKOR": f"{m['score']['fullTime']['home']} - {m['score']['fullTime']['away']}" if m['status'] == 'FINISHED' else "Bekleniyor",
+            "Ev 1.5 Ü": "🔥 %75" if len(ev) > 8 else "❄️ %40",
+            "Dep 1.5 Ü": "🔥 %70" if len(dep) > 8 else "❄️ %35",
+            "İY 0.5 Ü": "🔥 %80" if puan > 15 else "❄️ %50",
+            "KG Var": "✅ Evet" if puan > 17 else "❌ Hayır",
+            "Kart": "3-5 Sarı" if puan > 14 else "1-3 Sarı"
         })
-    return analiz_sonuclari
+    return sonuclar
 
-# LİG LİSTESİ
-lig_liste = {
-    "İngiltere Premier Lig": "PL",
-    "İspanya La Liga": "PD",
-    "İtalya Serie A": "SA",
-    "Almanya Bundesliga": "BL1",
-    "Fransa Ligue 1": "FL1",
-    "Hollanda Eredivisie": "DED",
-    "İngiltere Championship": "ELC"
-}
+# LİG SEÇİMİ
+ligler = {"İngiltere Premier Lig": "PL", "İspanya La Liga": "PD", "İtalya Serie A": "SA", "Almanya Bundesliga": "BL1", "Fransa Ligue 1": "FL1", "Hollanda Eredivisie": "DED"}
 
-st.sidebar.markdown("### 🛠️ Kontrol Paneli")
-secilen_lig_adi = st.sidebar.selectbox("Ligi Seçin", list(lig_liste.keys()))
-analiz_tipi = st.sidebar.radio("Analiz Türü", ["Gelecek Maçlar", "Geçmiş Maçlar (Son 20)"])
+st.sidebar.header("⚙️ Ayarlar")
+secilen_lig = st.sidebar.selectbox("Lig Seç", list(ligler.keys()))
+secilen_mod = st.sidebar.radio("Zaman Dilimi", ["Gelecek Maçlar", "Geçmiş Maçlar"])
 
 if st.button("🚀 ANALİZİ BAŞLAT"):
-    with st.spinner('Veriler analiz ediliyor...'):
-        maclar, durum = veri_cek(lig_liste[secilen_lig_adi], analiz_tipi)
-        
-        if durum == 200 and maclar:
-            sonuclar = derin_analiz(maclar)
-            st.success(f"✅ {secilen_lig_adi} Başarıyla Analiz Edildi.")
-            st.table(pd.DataFrame(sonuclar))
-        elif durum == 429:
-            st.error("⚠️ API Sınırı: Çok hızlı bastın ustam, 30 saniye bekle.")
+    # Önbellekten veriyi getir (Süre sınırına takılmamak için)
+    ham_veri = veri_getir_cached(ligler[secilen_lig])
+    
+    if isinstance(ham_veri, dict):
+        liste = analiz_motoru(ham_veri, secilen_mod)
+        if liste:
+            st.success(f"✅ {secilen_lig} Analizi Tamamlandı.")
+            st.table(pd.DataFrame(liste))
         else:
-            st.warning(f"⚠️ Bu ligde şu an için uygun maç bulunamadı. (Hata Kodu: {durum})")
+            st.warning("⚠️ Bu ligde şu an veri bulunamadı.")
+    else:
+        st.error(f"❌ API Sınırı veya Hata (Kod: {ham_veri}). Lütfen 1 dakika sonra tekrar dene.")
